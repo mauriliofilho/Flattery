@@ -10,17 +10,23 @@ import android.preference.PreferenceManager
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import timber.log.Timber
 import util.geometry.Vector2
-import java.util.Timer
-import java.util.TimerTask
 import kotlin.math.roundToInt
 
 
 @SuppressLint("ViewConstructor")
 
 class MainView(context: Context, appList: List<PInfo>) : View(context) {
-    private var edgeTimer: Timer? = null
+    private val viewScope = CoroutineScope(Dispatchers.Main)
+    private var edgeScrollJob: Job? = null
     private var density: Float = context.resources.displayMetrics.density
     var onPackageClick: ((PInfo) -> Unit)? = null
 
@@ -89,18 +95,18 @@ class MainView(context: Context, appList: List<PInfo>) : View(context) {
     var reorderer: Reorderer? = null
 
     fun resetReorderEdgeTimer() {
-        edgeTimer?.cancel()
+        edgeScrollJob?.cancel()
+        edgeScrollJob = null
     }
 
     fun reorderAtEdge(newOffsets: Vector2) {
         resetReorderEdgeTimer()
-        edgeTimer = Timer()
-        edgeTimer?.schedule(object : TimerTask() {
-            override fun run() {
+        edgeScrollJob = viewScope.launch {
+            while (isActive) {
                 offsetLeft += newOffsets.x
                 offsetTop += newOffsets.y
                 val curReorderer = reorderer
-                if (curReorderer !== null) {
+                if (curReorderer != null) {
                     val appPos = curReorderer.getAppPos()
                     post {
                         curReorderer.onMove(
@@ -112,8 +118,9 @@ class MainView(context: Context, appList: List<PInfo>) : View(context) {
                     }
                 }
                 prepareInvalidate()
+                delay(60) // ~16fps, optimized for battery
             }
-        }, 0, 60)
+        }
     }
 
     fun handleLongPress(event: MotionEvent) {
@@ -278,5 +285,13 @@ class MainView(context: Context, appList: List<PInfo>) : View(context) {
         canvas.translate(offset.x, offset.y)
         container.draw(canvas)
         openingApp?.drawNormal(canvas)
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        // Clean up coroutines when view is detached
+        resetReorderEdgeTimer()
+        viewScope.cancel()
+        Timber.d("MainView detached, coroutines cancelled")
     }
 }

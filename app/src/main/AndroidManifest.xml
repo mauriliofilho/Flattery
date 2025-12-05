@@ -30,6 +30,10 @@
             android:name="com.google.android.wearable.standalone"
             android:value="true" />
 
+        <meta-data
+            android:name="com.google.android.wearable.ambient.enabled"
+            android:value="true" />
+
         <activity
             android:name=".presentation.BackToClock"
             android:exported="true"

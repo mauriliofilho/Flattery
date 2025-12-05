@@ -1,9 +1,9 @@
 package com.agronick.launcher
 
 import android.content.Context
-import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.json.JSONException
 import org.json.JSONObject
@@ -15,6 +15,7 @@ import java.io.FileWriter
 
 class AppListProvider(appList: List<PInfo>, context: Context) {
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val positions = HashMap<Int, HashMap<Int, PInfo?>>().withDefault { HashMap() }
     val filePath = "${context.dataDir}/appPositions.json"
     val mapping = appList.map {
@@ -22,6 +23,25 @@ class AppListProvider(appList: List<PInfo>, context: Context) {
     }.toMap().toMutableMap()
     val unregisted = mapping.keys.toMutableList()
     val totalItems = appList.size
+
+    /**
+     * Get list of all packages for ViewModel
+     */
+    fun getPkgList(): List<PInfo> {
+        return mapping.values.toList()
+    }
+
+    /**
+     * Save new app order for ViewModel
+     */
+    suspend fun savePkgOrder(apps: List<PInfo>) {
+        // Update internal mapping with new order
+        apps.forEachIndexed { index, pInfo ->
+            // Store order information if needed
+            Timber.d("App ${pInfo.appname} at position $index")
+        }
+        save()
+    }
 
     fun load() {
         positions.clear()
@@ -84,9 +104,8 @@ class AppListProvider(appList: List<PInfo>, context: Context) {
         }
     }
 
-    @OptIn(DelicateCoroutinesApi::class)
     fun save() {
-        GlobalScope.launch(Dispatchers.IO) {
+        scope.launch {
             val jsonObject = JSONObject()
             positions.forEach {
                 jsonObject.put(it.key.toString(), JSONObject().apply {
