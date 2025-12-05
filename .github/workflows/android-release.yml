@@ -1,0 +1,94 @@
+name: Android Release Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      build-type:
+        description: "Tipo de build"
+        required: true
+        default: "release"
+        type: choice
+        options:
+          - release
+          - debug
+      flavor:
+        description: "Flavor (se usar productFlavors, ex: prod, dev). Deixe vazio se não usar."
+        required: false
+        type: string
+  push:
+    tags:
+      - "v*.*.*"      # Ex: v1.0.0 => dispara build de release
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17" # ajuste se seu projeto usar 11, 21, etc.
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Decode and prepare keystore
+        run: |
+          mkdir -p $HOME/.android
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > $HOME/.android/release.keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      - name: Build Release (APK and AAB)
+        env:
+          ANDROID_KEYSTORE_PATH: $HOME/.android/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          BUILD_TYPE="${{ github.event.inputs.build-type || 'release' }}"
+          FLAVOR="${{ github.event.inputs.flavor }}"
+          
+          # Se você tiver flavors, o assemble é algo como assembleProdRelease
+          if [ -n "$FLAVOR" ]; then
+            assemble_task="assemble${FLAVOR^}${BUILD_TYPE^}"
+            bundle_task="bundle${FLAVOR^}${BUILD_TYPE^}"
+          else
+            assemble_task="assemble${BUILD_TYPE^}"
+            bundle_task="bundle${BUILD_TYPE^}"
+          fi
+
+          echo "Running ./gradlew :app:$assemble_task :app:$bundle_task"
+          ./gradlew :app:$assemble_task :app:$bundle_task --stacktrace
+
+      - name: List generated artifacts
+        run: |
+          echo "=== APKs ==="
+          find app/build/outputs/apk -type f -name "*.apk" -print
+          echo "=== AABs ==="
+          find app/build/outputs/bundle -type f -name "*.aab" -print
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-${{ github.ref_name }}
+          path: |
+            app/build/outputs/apk/**/**/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload AABs
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-aab-${{ github.ref_name }}
+          path: |
+            app/build/outputs/bundle/**/**/*.aab
+          if-no-files-found: warn
+          retention-days: 7
